@@ -4,13 +4,9 @@ import os
 import shutil
 from datetime import datetime
 import json
-import urllib.parse 
+import urllib.parse  # Import URL decoding module
 
 app = Flask(__name__)
-
-# Ensure repo directory exists
-if not os.path.exists("repo"):
-    os.makedirs("repo")
 
 # Function to clone repo
 def clone_repo(git_url, branch):
@@ -25,61 +21,27 @@ def clone_repo(git_url, branch):
         return None, result.stderr
     return repo_dir, None
 
-# Build Docker image and run SCA scan with Grype
-def run_sca_scan(directory, dockerfile):
-    dockerfile_path = os.path.join(directory, dockerfile)
-    if not os.path.exists(dockerfile_path):
-        return {"error": "Dockerfile not found"}
+# Pull Docker image and run SCA scan with Grype
+def run_sca_scan(image_name):
+    pull_cmd = ["docker", "pull", image_name]
+    pull_result = subprocess.run(pull_cmd, capture_output=True, text=True)
     
-    image_tag = f"sca_scan_image_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    build_cmd = ["docker", "build", "-t", image_tag, "-f", dockerfile_path, directory]
-    build_result = subprocess.run(build_cmd, capture_output=True, text=True)
+    if pull_result.returncode != 0:
+        return {"error": "Failed to pull Docker image", "details": pull_result.stderr}
     
-    if build_result.returncode != 0:
-        return {"error": "Failed to build Docker image", "details": build_result.stderr}
-    
-    scan_cmd = ["grype", image_tag, "-o", "json"]
+    scan_cmd = ["grype", image_name]
     scan_result = subprocess.run(scan_cmd, capture_output=True, text=True)
     
-    try:
-        output = json.loads(scan_result.stdout)
-    except json.JSONDecodeError:
-        output = scan_result.stdout
-    
-    return {"output": output if scan_result.returncode == 0 else scan_result.stderr}
-
-# Run SAST scan with Bearer
-def run_sast_scan(directory):
-    result = subprocess.run(["bearer", "scan", directory, "--format", "json"], capture_output=True, text=True)
-    try:
-        output = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        output = result.stdout
-    return {"output": output if result.returncode == 0 else result.stderr}
+    return scan_result.stdout if scan_result.returncode == 0 else scan_result.stderr
 
 @app.route("/scan/run_sca_scan", methods=["GET"])
 def run_sca_scan_endpoint():
-    git_url = request.args.get("git_url")
-    branch = request.args.get("branch", "main")
-    dockerfile = request.args.get("dockerfile", "Dockerfile")
+    image_name = request.args.get("image_name")
     
-    repo_path, error = clone_repo(git_url, branch)
-    if error:
-        return jsonify({"error": "Failed to clone repo", "details": error}), 400
+    if not image_name:
+        return jsonify({"error": "Missing image_name"}), 400
     
-    result = run_sca_scan(repo_path, dockerfile)
-    return jsonify(result)
-
-@app.route("/scan/run_sast_scan", methods=["GET"])
-def run_sast_scan_endpoint():
-    git_url = request.args.get("git_url")
-    branch = request.args.get("branch", "main")
-    
-    repo_path, error = clone_repo(git_url, branch)
-    if error:
-        return jsonify({"error": "Failed to clone repo", "details": error}), 400
-    
-    result = run_sast_scan(repo_path)
+    result = run_sca_scan(image_name)
     return jsonify(result)
 
 if __name__ == "__main__":
