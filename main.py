@@ -4,6 +4,7 @@ import os
 import shutil
 from datetime import datetime
 import json
+import urllib.parse 
 
 app = Flask(__name__)
 
@@ -13,6 +14,7 @@ if not os.path.exists("repo"):
 
 # Function to clone repo
 def clone_repo(git_url, branch):
+    git_url = urllib.parse.unquote(urllib.parse.unquote(git_url))  # Decode URL twice
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     repo_name = git_url.split("/")[-1].replace(".git", "")
     repo_dir = os.path.join("repo", f"{repo_name}_{timestamp}")
